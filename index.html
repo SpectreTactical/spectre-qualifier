@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Spectre Qualifier</title>
+<meta name="theme-color" content="#14284b">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<style>
+*{box-sizing:border-box}html,body{margin:0}body{font:16px/1.4 -apple-system,system-ui,Segoe UI,Roboto,sans-serif;background:#eef1f6;color:#1a2233;padding-bottom:70px}
+header{background:#14284b;color:#fff;padding:12px 16px;display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:5}
+header b{letter-spacing:.08em}header .q{margin-left:auto;font-size:13px;opacity:.85;text-align:right}
+main{max-width:640px;margin:0 auto;padding:10px}
+nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:#fff;border-top:1px solid #c9d1df;z-index:6}
+nav button{flex:1;border:0;border-radius:0;padding:14px 4px;background:#fff;font-weight:600;color:#5d6780}nav button.on{color:#14284b;box-shadow:inset 0 3px 0 #14284b}
+.card{background:#fff;border-radius:12px;padding:14px 16px;margin:10px 0;box-shadow:0 1px 3px #0002}
+h1{font-size:20px;margin:0 0 6px}h2{font-size:17px;margin:0 0 8px}h3{font-size:15px;margin:10px 0 4px}
+label{display:block;font-weight:600;font-size:14px;margin:10px 0 3px}
+input,select,textarea{width:100%;font:inherit;padding:10px;border:1px solid #b9c2d3;border-radius:8px;background:#fff}
+button{font:inherit;padding:11px;border-radius:8px;border:1px solid #b9c2d3;background:#fff;cursor:pointer;min-height:44px}
+button.primary{background:#14284b;color:#fff;border-color:#14284b;font-weight:600}button.danger{color:#b32020;border-color:#e2a0a0}
+button.wide{width:100%}button:disabled{opacity:.5}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+.muted{color:#5d6780}.small{font-size:14px}.tiny{font-size:12px}
+.msg{padding:10px 12px;border-radius:8px;margin:8px 0}.ok{background:#e3f5e6}.warn{background:#fff3d6}.err{background:#fde2e2}
+.row{display:flex;align-items:center;gap:8px}.grow{flex:1;min-width:0}
+ul.plain{list-style:none;padding:0;margin:0}ul.plain li{padding:9px 0;border-bottom:1px solid #e2e6ee}
+.chip{display:inline-block;font-size:12px;font-weight:700;padding:3px 8px;border-radius:999px;background:#e2e6ee;color:#334}
+.chip.PASS{background:#1f7a35;color:#fff}.chip.FAIL{background:#b3261e;color:#fff}.chip.INCOMPLETE{background:#e2e6ee;color:#334}
+.stage{border:1px solid #d5dbe6;border-radius:10px;padding:10px;margin:8px 0}
+.stage .hd{display:flex;gap:8px;align-items:baseline}.stage .hd b{font-size:15px}.stage .par{margin-left:auto;font-weight:700;white-space:nowrap}
+.seg{display:grid;grid-template-columns:1fr 1fr 96px;gap:8px;margin-top:8px}
+.seg button.within.on{background:#1f7a35;color:#fff;border-color:#1f7a35}.seg button.over.on{background:#b3261e;color:#fff;border-color:#b3261e}
+.seg input{padding:8px;text-align:center}
+details summary{cursor:pointer;color:#33507f;font-size:13px;margin-top:4px}
+.zone{display:grid;grid-template-columns:1fr 52px 70px 52px;gap:8px;align-items:center;margin:8px 0}.zone input{text-align:center;font-size:20px;padding:6px}
+.zone button{font-size:22px;padding:4px}
+.banner{border-radius:10px;padding:12px;margin:10px 0;font-weight:600}.banner.PASS{background:#e3f5e6;border:2px solid #1f7a35}.banner.FAIL{background:#fde2e2;border:2px solid #b3261e}.banner.INCOMPLETE{background:#eef1f6;border:2px dashed #8792a8}
+.banner ul{margin:6px 0 0 18px;padding:0;font-weight:400;font-size:14px}
+table.res{width:100%;border-collapse:collapse;font-size:13px}table.res th,table.res td{border-bottom:1px solid #e2e6ee;padding:5px 3px;text-align:center}table.res td.l,table.res th.l{text-align:left}
+.ov{position:fixed;inset:0;background:#eef1f6;z-index:50;overflow:auto;padding:12px}.ov>div{max-width:560px;margin:0 auto}
+#toast{position:fixed;left:50%;bottom:80px;transform:translateX(-50%);background:#14284b;color:#fff;padding:10px 16px;border-radius:999px;font-size:14px;z-index:60;display:none}
+#upd{display:none;background:#fff3d6;padding:8px 12px;text-align:center;font-size:14px}#upd button{min-height:0;padding:4px 10px;margin-left:8px}
+.qr svg{width:180px;height:180px;display:block;margin:6px auto}
+#printArea{display:none}
+@media print{
+  @page{size:A4 portrait;margin:12mm}
+  body{background:#fff;padding:0}body>*:not(#printArea){display:none!important}#printArea{display:block!important}
+}
+#printArea{font:10pt/1.3 Arial,Helvetica,sans-serif;color:#000}
+#printArea h1{font-size:15pt;margin:0}#printArea .sub{margin:2px 0 8px;font-size:9.5pt}
+#printArea table{width:100%;border-collapse:collapse;font-size:8.6pt}#printArea th,#printArea td{border:1px solid #444;padding:3px 2px;text-align:center}
+#printArea th{background:#e6e9ef}#printArea td.l,#printArea th.l{text-align:left}#printArea .o{font-weight:700}
+#printArea .R{font-weight:700}#printArea .foot{margin-top:8px;font-size:8.5pt}#printArea .why{font-size:7.8pt;text-align:left}
+#printArea tr{page-break-inside:avoid}
+</style>
+</head>
+<body>
+<div id="upd">Update available <button type="button" id="updB">Reload</button></div>
+<header><b>SPECTRE</b> Qualifier<span class="q" id="hdrQ"></span></header>
+<main id="app"></main>
+<nav id="nav"><button data-tab="match">Match</button><button data-tab="shooters">Shooters</button><button data-tab="score">Score</button><button data-tab="results">Results</button></nav>
+<div id="toast"></div>
+<div id="printArea"></div>
+<script src="firebase-config.js"></script>
+<script src="engine.js"></script>
+<script src="qualifiers/fam-tpc.js"></script>
+<script src="qualifiers/fbi-pistol.todo.js"></script>
+<script src="qualifiers/fbi-shotgun.todo.js"></script>
+<script src="reg-core.js"></script>
+<script src="qrcode.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

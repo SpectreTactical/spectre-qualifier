@@ -1,6 +1,6 @@
 /* Spectre Qualifier service worker: caches the app for full offline use. Relative URLs (works from any sub-path).
    build.sh writes sw.js from this file with a cache name taken from the files' hash. */
-var CACHE = "spectre-qualifier-e4e3c37c7c7c";
+var CACHE = "spectre-qualifier-30a7668aa9d8";
 var FILES = ["./", "./index.html", "./app.js", "./engine.js", "./reg-core.js", "./firebase-config.js", "./qrcode.js",
   "./qualifiers/fam-tpc.js", "./qualifiers/fbi-pistol.todo.js", "./qualifiers/fbi-shotgun.todo.js",
   "./manifest.webmanifest", "./icons/apple-touch-icon.png", "./icons/icon-192.png", "./icons/icon-512.png",

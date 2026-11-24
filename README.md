@@ -61,3 +61,10 @@ The archive JSON also leaves out member numbers. ID/cell live only in `regs/{cod
 
 ## Tests
 `t/run-all.sh` (Java in /workspace/jdk, firebase-tools in /workspace/fbtools; uses the demo emulator project only).
+
+
+## Match directors (shared registration organiser) – not released until Gideon approves
+
+A console-only `hosts/{uid}` list lets an approved match director take a registration they did not create (for example Gideon prepared it at home). Claiming does not grant ID/cell access. There is no live-room host in this app; scoring stays on the phone. Use a backup file if the scores need to move.
+
+At release, after each person signs up in this app (Match director card), add `hosts/{uid}` in the **spectre-qualifier** Firebase console. Same four people as the club app, separate project. Rules in this folder are not published until Gideon approves a release.

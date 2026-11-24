@@ -58,7 +58,7 @@ function matchTab(){
     (v.errors.length || v.warnings.length ? '<div class="msg warn small">' + v.errors.concat(v.warnings).map(esc).join("<br>") + '</div>' : "") +
     '<ul class="plain small" style="margin-top:6px">' + q.stages.map(function(st){ return '<li><b>' + st.n + '. ' + esc(st.title) + '</b> · ' + E.stageRounds(st) + ' rds · ' + (st.parMode === "string" ? "par per string: " + st.strings.map(function(x){ return fp(x.par) + " s"; }).join(" / ") : "par " + fp(st.par) + " s" + (st.strings.length > 1 ? " (" + st.strings.length + " strings combined)" : "")) + '</li>'; }).join("") + '</ul>' +
     '<p class="tiny muted">Source: ' + esc(q.source) + '</p></div>';
-  h += '<div class="card"><h2>Shooter registration (online)</h2><div id="regBox">' + regInner() + '</div></div>';
+  h += hostCard(); h += '<div class="card"><h2>Shooter registration (online)</h2><div id="regBox">' + regInner() + '</div></div>';
   h += '<div class="card"><h2>This phone</h2><p class="small muted">Scores live on this phone only. Save a backup file after each squad.</p>' +
     '<div class="grid2"><button type="button" id="bkSave">Save backup file</button><button type="button" id="bkLoad">Load backup file…</button></div>' +
     '<button type="button" class="wide danger" style="margin-top:8px" id="newMatch">New match (clear this phone)…</button><input type="file" id="bkFile" accept=".json,application/json" hidden></div>';
@@ -74,12 +74,71 @@ function bindMatch(){
     return uiConfirm("Replace everything on this phone with the backup \"" + (d.match && d.match.name || "unnamed") + "\" (" + (d.shooters || []).length + " shooters)?", { ok: "Replace" }).then(function(ok){ if(!ok) return; d = E.stripPii(d); S.match = d.match || blank().match; S.shooters = d.shooters || []; S.scores = d.scores || {}; save(); render(); toast("Backup loaded"); }); })
     .catch(function(e){ uiAlert("Could not load the file: " + e.message); }); this.value = ""; };
   $("newMatch").onclick = function(){ uiConfirm("Clear this phone and start a new match? Save a backup file first – this cannot be undone.", { ok: "Clear", danger: true }).then(function(ok){ if(!ok) return; var t = S.tab; S = blank(); S.tab = t; save(); render(); }); };
-  regBind();
+  hostBind(); regBind();
 }
 
 /* ------------------------------ Online registration (organiser side) ------------------------------ */
-var REG = { code: "" }, REGRT = { reg: null, entries: [], unsub: [], err: "", code: "" }, FBX = null;
+var REG = { code: "" }, REGRT = { reg: null, entries: [], unsub: [], err: "", code: "", uid: "" }, FBX = null;
+var HOSTKEY = "spectreQualifier.host", HOST = { uid: "", email: "", name: "", ok: false, state: "" }, HOSTRT = { msg: "", view: "", busy: false };
 try{ Object.assign(REG, JSON.parse(localStorage.getItem(REGKEY) || "{}")); }catch(e){}
+try{ Object.assign(HOST, JSON.parse(localStorage.getItem(HOSTKEY) || "{}")); }catch(e){}
+function hostSave(){ try{ localStorage.setItem(HOSTKEY, JSON.stringify({ uid: HOST.uid, email: HOST.email, name: HOST.name, ok: HOST.ok, state: HOST.state })); }catch(e){} }
+function hostOn(){ return !!(HOST.ok && HOST.uid); }
+function hostName(){ return String(HOST.name || HOST.email || "").replace(/@.*$/, "").trim().slice(0, 80); }
+function hostUidOf(d){ return String(d && d.hostUid || ""); }
+function hostHeldByOther(d, id){ var h = hostUidOf(d); return !!(h && h !== id); }
+function isEffectiveHostDoc(d, id){ var h = hostUidOf(d); return !!(d && (h ? h === id : d.createdBy === id)); }
+function hostHeldMsg(d){ var n = String(d && d.hostName || "").trim(); return "This already has a main phone" + (n ? " (" + n + ")" : " (another director)") + ". They keep it until they release it. There is no mid-shoot handover."; }
+function hostClaimFields(){ return { hostUid: HOST.uid, hostName: hostName(), hostAt: new Date().toISOString() }; }
+function hostClearFields(){ return { hostUid: "", hostName: "", hostAt: "" }; }
+function hostErr(er){ var c = String(er && er.code || ""); return /invalid-credential|wrong-password|user-not-found|invalid-email/.test(c) ? "That email and password do not match a club login." : /email-already-in-use/.test(c) ? "That email already has a club login – sign in instead." : /weak-password/.test(c) ? "Use a password of at least 8 characters." : (er && er.message || String(er)); }
+function hostRefresh(){
+  if(!window.sqFirebaseReady()) return Promise.resolve();
+  return fbT().then(function(t){
+    var u = t.auth.currentUser;
+    if(!u || u.isAnonymous){ if(HOST.uid){ HOST = { uid: "", email: "", name: HOST.name || "", ok: false, state: "" }; hostSave(); } return; }
+    HOST.uid = u.uid; HOST.email = String(u.email || HOST.email || "");
+    return t.isHost(u.uid).then(function(ok){ HOST.ok = !!ok; HOST.state = ok ? "ok" : "waiting"; hostSave(); });
+  }).catch(function(){});
+}
+function hostCard(){
+  if(!window.sqFirebaseReady()) return "";
+  var h = '<div class="card" id="hostCard"><h2>Match director</h2>', m = HOSTRT.msg ? '<div class="small"><b>' + esc(HOSTRT.msg) + '</b></div>' : "";
+  if(HOST.uid){
+    return h + '<div>Signed in as <b>' + esc(hostName() || HOST.email) + '</b></div><div class="small muted">' + esc(HOST.state === "ok" ? "This phone is signed in as a match director." : "Signed in, but this account is not on the match director list yet. Ask the club admin to add it in Firestore › hosts.") + '</div>' + m +
+      '<p class="small muted">A listed director can take a registration someone else created. This role does not grant access to ID or cell numbers.</p>' +
+      '<div class="grid2"><button type="button" id="hostCheck">Check status</button><button type="button" class="danger" id="hostOut">Sign out…</button></div></div>';
+  }
+  var v = HOSTRT.view;
+  h += '<p class="small muted">Sign in with your club email so you can take a registration you did not create. ID and cell numbers stay admin-only.</p>' + m;
+  if(v === "in" || v === "new") h += (v === "new" ? '<label>Your name</label><input id="hostNm" maxlength="80" value="' + esc(HOST.name || "") + '">' : "") +
+    '<label>Email</label><input id="hostEmail" type="email" autocomplete="username">' +
+    '<label>Password' + (v === "new" ? " (8+ characters)" : "") + '</label><input id="hostPw" type="password" autocomplete="' + (v === "new" ? "new-password" : "current-password") + '">' +
+    (v === "new" ? '<label>Password again</label><input id="hostPw2" type="password" autocomplete="new-password">' : "") +
+    '<div class="grid2" style="margin-top:8px"><button type="button" class="primary" id="hostGo">' + (v === "new" ? "Create login" : "Sign in") + '</button><button type="button" id="hostBack">Cancel</button></div>';
+  else h += '<div class="grid2"><button type="button" class="primary" id="hostShowIn">Sign in</button><button type="button" id="hostShowNew">Create a club login</button></div>';
+  return h + '</div>';
+}
+function hostBind(){
+  var g = function(p){ HOSTRT.busy = true; return p.then(function(){ HOSTRT.busy = false; render(); }, function(er){ HOSTRT.busy = false; HOSTRT.msg = hostErr(er); render(); }); };
+  if($("hostShowIn") || $("hostShowNew")){ ["hostShowIn","hostShowNew"].forEach(function(id){ var b = $(id); if(b) b.onclick = function(){ HOSTRT.view = id === "hostShowIn" ? "in" : "new"; HOSTRT.msg = ""; render(); }; }); }
+  if($("hostBack")) $("hostBack").onclick = function(){ HOSTRT.view = ""; HOSTRT.msg = ""; render(); };
+  if($("hostCheck")) $("hostCheck").onclick = function(){ HOSTRT.msg = ""; g(hostRefresh().then(function(){ HOSTRT.msg = HOST.state === "ok" ? "This phone is signed in as a match director." : (HOST.state === "waiting" ? "Not on the match director list yet." : "Not signed in."); })); };
+  if($("hostOut")) $("hostOut").onclick = function(){ uiConfirm("Sign out as match director?", { ok: "Sign out", danger: true }).then(function(ok){ if(!ok) return; g(fbT().then(function(t){ return t.signOut(); }).then(function(){ HOST = { uid: "", email: "", name: HOST.name || "", ok: false, state: "" }; hostSave(); HOSTRT.view = ""; HOSTRT.msg = "Signed out."; })); }); };
+  if($("hostGo")) $("hostGo").onclick = function(){
+    var v = HOSTRT.view, email = ($("hostEmail").value || "").trim(), pw = $("hostPw").value || "", nm = v === "new" ? ($("hostNm").value || "").replace(/\s+/g, " ").trim().slice(0, 80) : (HOST.name || "");
+    HOSTRT.msg = "";
+    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ HOSTRT.msg = "Enter your club email address."; return render(); }
+    if(v === "new"){
+      if(!nm){ HOSTRT.msg = "Type your name."; return render(); }
+      if(pw.length < 8){ HOSTRT.msg = "Use a password of at least 8 characters."; return render(); }
+      if(pw !== $("hostPw2").value){ HOSTRT.msg = "The two passwords differ."; return render(); }
+      return g(fbT().then(function(t){ return t.createPw(email, pw); }).then(function(){ HOST.name = nm; HOST.email = email; return hostRefresh(); }).then(function(){ HOSTRT.view = ""; HOSTRT.msg = HOST.ok ? "Signed in as a match director." : "Login created. Ask the club admin to add this account in Firestore › hosts, then tap Check status."; }));
+    }
+    if(!pw){ HOSTRT.msg = "Type your password."; return render(); }
+    return g(fbT().then(function(t){ return t.signInPw(email, pw); }).then(function(){ if(nm) HOST.name = nm; HOST.email = email; return hostRefresh(); }).then(function(){ HOSTRT.view = ""; HOSTRT.msg = HOST.ok ? "Signed in as a match director." : hostRefresh && (HOST.state === "waiting" ? "Signed in, but not on the match director list yet." : "Signed in."); }));
+  };
+}
 function regSaveLocal(){ try{ localStorage.setItem(REGKEY, JSON.stringify({ code: REG.code })); }catch(e){} }
 function fbT(){
   if(!window.sqFirebaseReady()) return Promise.reject(new Error("Online registration is not set up yet: fill in firebase-config.js with the qualifier's own Firebase project."));
@@ -88,7 +147,15 @@ function fbT(){
   FBX = Promise.all([import(base + "firebase-app.js"), import(base + "firebase-auth.js"), import(base + "firebase-firestore.js")]).then(function(m){
     var app = m[0].initializeApp(cfg), auth = m[1].getAuth(app), F = m[2], db = F.getFirestore(app);
     if(cfg.emulator){ m[1].connectAuthEmulator(auth, "http://" + cfg.emulator + ":9099", { disableWarnings: true }); F.connectFirestoreEmulator(db, cfg.emulator, 8085); }
-    return (auth.currentUser ? Promise.resolve(auth.currentUser) : m[1].signInAnonymously(auth).then(function(c){ return c.user; })).then(function(u){ return { F: F, db: db, uid: u.uid }; });
+    return (auth.currentUser ? Promise.resolve(auth.currentUser) : m[1].signInAnonymously(auth).then(function(c){ return c.user; })).then(function(u){
+      var t = { F: F, db: db, uid: u.uid, auth: auth };
+      t.refreshUid = function(){ t.uid = auth.currentUser ? auth.currentUser.uid : ""; return t.uid; };
+      t.isHost = function(id){ return F.getDoc(F.doc(db, "hosts", id)).then(function(d){ return d.exists(); }); };
+      t.signInPw = function(email, pw){ return m[1].signInWithEmailAndPassword(auth, email, pw).then(function(c){ t.uid = c.user.uid; return c.user; }); };
+      t.createPw = function(email, pw){ return m[1].createUserWithEmailAndPassword(auth, email, pw).then(function(c){ t.uid = c.user.uid; return c.user; }); };
+      t.signOut = function(){ return m[1].signOut(auth).then(function(){ return m[1].signInAnonymously(auth); }).then(function(c){ t.uid = c.user.uid; return t.uid; }); };
+      return t;
+    });
   });
   FBX.catch(function(){ FBX = null; });
   return FBX;
@@ -99,8 +166,11 @@ function regWatch(){
   if(!REG.code || (REGRT.code === REG.code && REGRT.unsub.length)) return;
   regUnwatch(); REGRT.code = REG.code;
   fbT().then(function(t){ var F = t.F, db = t.db, code = REG.code;
-    REGRT.unsub.push(F.onSnapshot(F.doc(db, "regs", code), function(d){ REGRT.reg = d.exists() ? d.data() : null; REGRT.err = d.exists() ? "" : "No registration with that code."; regPaint(); }, regErr));
-    REGRT.unsub.push(F.onSnapshot(F.collection(db, "regs", code, "entries"), function(q){ REGRT.entries = q.docs.map(function(d){ var e = d.data(); e.tok = d.id; return e; }); regPaint(); }, function(e){ REGRT.entries = []; regErr(/permission/i.test(e.message) ? new Error("Only the phone that created this registration can list its entries.") : e); }));
+    REGRT.uid = t.refreshUid ? t.refreshUid() : t.uid;
+    var applyReg = function(d){ if(REG.code !== code) return; REGRT.reg = d.exists() ? d.data() : null; REGRT.err = d.exists() ? "" : "No registration with that code."; if($("regBox")) regPaint(); else setTimeout(function(){ if($("regBox")) regPaint(); else if(typeof render === "function") render(); }, 0); };
+    F.getDoc(F.doc(db, "regs", code)).then(applyReg, regErr);
+    REGRT.unsub.push(F.onSnapshot(F.doc(db, "regs", code), applyReg, regErr));
+    REGRT.unsub.push(F.onSnapshot(F.collection(db, "regs", code, "entries"), function(q){ REGRT.entries = q.docs.map(function(d){ var e = d.data(); e.tok = d.id; return e; }); if(REGRT.err && /list its entries|permission/i.test(REGRT.err)) REGRT.err = ""; regPaint(); }, function(e){ REGRT.entries = []; if(/permission/i.test(String(e && e.message))){ REGRT.err = ""; regPaint(); } else regErr(e); }));
   }).catch(regErr);
 }
 function regUnwatch(){ REGRT.unsub.forEach(function(u){ try{ u(); }catch(e){} }); REGRT.unsub = []; REGRT.code = ""; }
@@ -113,6 +183,16 @@ function regInner(){
   if(!REG.code) return '<p class="small muted">Shooters register with one link or QR: name, member number, division, power factor, category, class and squad, plus an optional opt-in ID and cell number for the indemnity form (admins only). Then import them here.</p><button type="button" class="wide primary" id="regNewB">Create a registration…</button><button type="button" class="wide" style="margin-top:8px" id="regOpenB">Open an existing one by code…</button>';
   var r = REGRT.reg;
   if(!r) return '<p class="small">Registration <b>' + esc(REG.code) + '</b> · ' + (REGRT.err ? '<span class="muted">' + esc(REGRT.err) + '</span>' : "loading…") + '</p><button type="button" class="wide" id="regForgetB">Forget on this phone</button>';
+  var myUid = REGRT.uid || HOST.uid || "";
+  if(!isEffectiveHostDoc(r, myUid) && !REGRT.entries.length){
+    var held = hostHeldByOther(r, myUid);
+    var h0 = '<div><b>' + esc(r.name) + '</b> · ' + esc(r.date) + ' · code <b>' + esc(REG.code) + '</b></div>';
+    if(held) h0 += '<div class="msg warn">' + esc(hostHeldMsg(r)) + '</div>';
+    else if(hostOn()) h0 += '<p class="small">This registration was created on another phone and is not claimed yet.</p><button type="button" class="wide primary" id="regTakeB">Take as match director…</button>';
+    else h0 += '<p class="small muted">This registration was created on another phone. Sign in as a match director to take it for the day.</p>';
+    h0 += '<button type="button" class="wide" style="margin-top:8px" id="regForgetB">Forget on this phone</button>';
+    return h0;
+  }
   var act = REGRT.entries.filter(function(e){ return e.status === "active"; }), open = regIsOpen(r), cap = 0, link = regLink(REG.code);
   var sq = regSquadIds(r).map(function(id){ var n = act.filter(function(e){ return e.squad === id; }).length; cap += r.squads[id].max; return '<li>' + esc(r.squads[id].n) + ': <b>' + n + '/' + r.squads[id].max + '</b></li>'; }).join("");
   return '<div><b>' + esc(r.name) + '</b> · ' + esc(r.date) + ' · code <b>' + esc(REG.code) + '</b></div>' +
@@ -123,6 +203,7 @@ function regInner(){
     '<details style="margin-top:10px"><summary>Entries (' + REGRT.entries.length + ')</summary><ul class="plain small">' + REGRT.entries.slice().sort(function(a, b){ return (a.last + a.first).localeCompare(b.last + b.first); }).map(function(e){
       var gone = e.status !== "active"; return '<li class="row" style="' + (gone ? "opacity:.55" : "") + '"><span class="grow"><b>' + esc(e.first + " " + e.last) + '</b>' + (gone ? " · " + esc(e.status) : "") + '<br>' + esc([r.squads[e.squad] ? r.squads[e.squad].n : "", regDivsText(e), e.cat, e.visitor ? "Visitor" : e.member ? "SWPC " + e.member : ""].filter(Boolean).join(" · ")) + '</span>' +
         (gone ? (e.status === "removed" ? '<button type="button" data-regrestore="' + esc(e.tok) + '">Restore</button>' : "") : '<label style="margin:0;font-weight:400"><input type="checkbox" style="width:auto" data-regpaid="' + esc(e.tok) + '"' + (e.paid ? " checked" : "") + '> Paid</label><button type="button" class="danger" data-regdel="' + esc(e.tok) + '">Remove</button>') + '</li>'; }).join("") + '</ul></details>' +
+    (hostOn() && hostUidOf(r) === (HOST.uid || "") ? '<button type="button" class="wide" style="margin-top:8px" id="regRelB">Release main phone…</button><p class="tiny muted">Release only if you prepared this registration and another director will run the day.</p>' : "") +
     '<button type="button" class="wide" style="margin-top:10px" id="regForgetB">Forget on this phone</button>';
 }
 function regBind(){
@@ -131,6 +212,8 @@ function regBind(){
   box.onclick = function(e){ var b = e.target.closest("button"); if(!b) return;
     if(b.id === "regNewB") regForm();
     if(b.id === "regOpenB") uiPrompt("Registration code").then(function(v){ v = String(v || "").toUpperCase().replace(/[^A-Z0-9]/g, ""); if(!/^[A-Z0-9]{6,8}$/.test(v)) return; regUnwatch(); REG = { code: v }; regSaveLocal(); REGRT.reg = null; regWatch(); regPaint(); });
+    if(b.id === "regTakeB") regClaim(REG.code).then(function(){ toast("This phone is the organiser for " + REG.code); regUnwatch(); regWatch(); regPaint(); }).catch(function(e){ uiAlert(e.message); });
+    if(b.id === "regRelB") uiConfirm("Release the main phone on registration " + REG.code + "? Another director can then take it.", { ok: "Release" }).then(function(ok){ if(!ok) return; return regRelease().then(function(){ toast("Main phone released"); regPaint(); }); }).catch(function(e){ uiAlert(e.message); });
     if(b.id === "regCopyB"){ var i = $("regLinkI"); i.select(); (navigator.clipboard ? navigator.clipboard.writeText(i.value) : Promise.reject()).then(function(){ toast("Link copied"); }, function(){ toast("Select the link and copy it"); }); }
     if(b.id === "regCloseB") regUpdate({ closed: !REGRT.reg.closed });
     if(b.id === "regImpB") regImport();
@@ -146,9 +229,29 @@ function regCreate(body){
   return fbT().then(function(t){ var F = t.F, db = t.db;
     return F.getDoc(F.doc(db, "regs", code)).then(function(d){ if(d.exists()) throw new Error("Code clash – try again.");
       var data = Object.assign({ code: code, closed: false, createdBy: t.uid, createdAt: regNowISO() }, body);
+      if(hostOn()) Object.assign(data, hostClaimFields());
       return F.setDoc(F.doc(db, "regs", code), data).then(function(){ var b = F.writeBatch(db); Object.keys(data.squads).forEach(function(id){ b.set(F.doc(db, "regs", code, "counts", id), { n: 0, last: "" }); }); return b.commit(); });
     }).then(function(){ REG = { code: code }; regSaveLocal(); REGRT.reg = null; REGRT.entries = []; regUnwatch(); regWatch(); return code; });
   });
+}
+
+function regNowISO(){ return new Date().toISOString(); }
+function regClaim(code){
+  code = String(code || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if(!/^[A-Z0-9]{6,8}$/.test(code)) return Promise.reject(new Error("Enter the registration code."));
+  if(!hostOn()) return Promise.reject(new Error("Sign in as a match director first."));
+  return fbT().then(function(t){ return t.F.getDoc(t.F.doc(t.db, "regs", code)).then(function(d){
+    if(!d.exists()) throw new Error("No registration " + code + ".");
+    var r = d.data();
+    if(hostHeldByOther(r, t.uid)) throw new Error(hostHeldMsg(r));
+    if(hostUidOf(r) === t.uid){ REG = { code: code }; regSaveLocal(); return code; }
+    return t.F.setDoc(t.F.doc(t.db, "regs", code), Object.assign({}, r, hostClaimFields(), { updatedAt: regNowISO() })).then(function(){ REG = { code: code }; regSaveLocal(); return code; });
+  }); });
+}
+function regRelease(){
+  if(!REG.code) return Promise.reject(new Error("No registration is open on this phone."));
+  if(!hostOn()) return Promise.reject(new Error("Sign in as a match director to release the claim."));
+  return fbT().then(function(t){ return t.F.setDoc(t.F.doc(t.db, "regs", REG.code), Object.assign({}, REGRT.reg, hostClearFields(), { updatedAt: regNowISO() })); });
 }
 function regLocalDT(ms){ var d = new Date(ms - new Date(ms).getTimezoneOffset() * 60000); return d.toISOString().slice(0, 16); }
 function regForm(){
@@ -387,6 +490,8 @@ if("serviceWorker" in navigator && location.protocol !== "file:"){
   }).catch(function(){});
   var reloaded = false; navigator.serviceWorker.addEventListener("controllerchange", function(){ if(reloaded || !$("upd").style.display || $("upd").style.display === "none") return; reloaded = true; location.reload(); });
 }
-window.SQAPP = { get state(){ return S; }, evaluate: function(id){ var s = S.shooters.filter(function(x){ return x.id === id; })[0]; return s ? resultOf(s) : null; }, resultsJSON: resultsJSON, reg: function(){ return { REG: REG, REGRT: REGRT }; } };
+function regLoadNow(){ if(!REG.code) return Promise.resolve(null); return fbT().then(function(t){ REGRT.uid = t.refreshUid ? t.refreshUid() : t.uid; return t.F.getDoc(t.F.doc(t.db, "regs", REG.code)).then(function(d){ REGRT.reg = d.exists() ? d.data() : null; REGRT.err = d.exists() ? "" : "No registration with that code."; if(typeof render === "function") render(); else regPaint(); return REGRT.reg; }); }); }
+window.SQAPP = { get state(){ return S; }, evaluate: function(id){ var s = S.shooters.filter(function(x){ return x.id === id; })[0]; return s ? resultOf(s) : null; }, resultsJSON: resultsJSON, reg: function(){ return { REG: REG, REGRT: REGRT, create: regCreate, loadNow: regLoadNow, open: function(code){ code = String(code || "").toUpperCase().replace(/[^A-Z0-9]/g, ""); if(!/^[A-Z0-9]{6,8}$/.test(code)) return Promise.reject(new Error("Enter the registration code.")); regUnwatch(); REG = { code: code }; regSaveLocal(); REGRT.reg = null; REGRT.entries = []; regWatch(); if(typeof render === "function") render(); else regPaint(); return Promise.resolve(code); } }; }, host: { get state(){ return HOST; }, on: hostOn, refresh: hostRefresh, claim: regClaim, release: regRelease } };
+if(window.sqFirebaseReady()) hostRefresh().then(function(){ if(S.tab === "match") render(); });
 render();
 })();
